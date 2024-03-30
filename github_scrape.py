@@ -1,0 +1,304 @@
+######################################################################
+#################### MAIN VERSION  ###################################
+######################################################################
+
+#Import packages
+from selenium import webdriver
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.by import By
+from bs4 import BeautifulSoup
+import urllib3
+import time
+from selenium.webdriver.support.ui import Select
+from datetime import datetime
+import math
+from string import ascii_uppercase as alphabet
+import itertools
+
+#Start timer
+startTime = datetime.now()
+
+#Iterate through alphabet - will be used for searches
+def loop_a():
+    for size in itertools.count(1):
+        for s in itertools.product(alphabet):
+            yield "".join(s)
+
+#Find the number of clicks we will need to do on each page(0-2)
+def records_returned():
+        rec_returned = driver.find_element(By.XPATH, '//*[@id="MainContent_ReturnedRecords"]')
+        rec_returned_text = rec_returned.text
+        records = rec_returned_text[:2]
+        if records == "Mo":
+            records = 51
+            next_clicks = 2
+            new_loop = True
+        elif records == "No":
+                records=-1
+                next_clicks=0
+        else:
+            records = int(records)
+            next_clicks = int(math.ceil(records/20))-1                  
+        return next_clicks
+
+#How many records were returned? Do we need to iterate again? Are there no records? These two functions could likely be combined.
+def num_records():
+        rec_returned = driver.find_element(By.XPATH, '//*[@id="MainContent_ReturnedRecords"]')
+        rec_returned_text = rec_returned.text
+        records = rec_returned_text[:2]
+        if records == "Mo":
+            records = 51
+            next_clicks = 2
+            new_loop = True
+        elif records == "No":
+                records=-1   
+        else:
+            records = int(records)
+            next_clicks = int(math.ceil(records/20))-1                  
+        return records
+
+#Actually click next on the webpage
+def click_next():
+        next_button = driver.find_element(By.XPATH, '//*[@id="ctl00_MainContent_SearchResults_ctl00"]/tfoot/tr/td/table/tbody/tr/td/div[3]/input[1]').click()
+        time.sleep(1)
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        time.sleep(1)
+        return soup
+
+#Pre-Req is to set Soup to the correct driver. Function to scrape and write the data to CSV
+def pull_data():
+        if not header_added:
+            #First print out the column headings
+            header = ','.join( [ item.get_text() for item in soup.select("table[class='rgMasterTable'] > thead > tr > th") ] )
+            print(header)
+            print(header, file=f)
+        #Next print all the data rows
+        for item in soup.select("table[class='rgMasterTable'] > tbody > tr"):
+                row_data = ','.join( [ item.get_text() for item in item.select("td") ] )
+                print(row_data)
+                print(row_data, file=f)
+
+#Options for our webdriver
+from selenium.webdriver.chrome.options import Options
+chrome_options = Options()
+chrome_options.add_argument("--disable-extensions")
+chrome_options.add_argument("--disable-gpu")
+chrome_options.add_argument("window-size=1520,800")
+#chrome_options.add_argument("--headless")  #show the browser or not
+
+#Start webdriver
+driver = webdriver.Chrome(options=chrome_options)
+
+#URL to scrape
+url = "https://moms.mn.gov/Search?S=1"
+driver.get(url)
+
+#Loop begins
+over_50 = 0 # Tells me if we missed anything
+header_added = False #Only want to print the header first time around - referenced in pull data function
+filename = 'moms_data_HENNEPIN'+ ".csv"
+with open(filename, 'w', encoding="utf-8") as f:  #Open file
+    for num in range(2, 87): #County number 2 to 87 (Aitken to Wright I think)
+        #First 
+        county_dropdown = driver.find_element(By.XPATH, '//*[@id="ctl00_MainContent_County"]/span/button').click() #Click county dropdown
+        time.sleep(1)
+        county = driver.find_element(By.XPATH, '//*[@id="ctl00_MainContent_County_DropDown"]/div/ul/li['+str(num)+']').click()  #Choosing the county
+        time.sleep(1)
+        app_dropdown = driver.find_element(By.XPATH, '//*[@id="ctl00_MainContent_SearchBy"]/span/button').click()  #Click search
+        time.sleep(1)
+        app_dropdown = driver.find_element(By.XPATH, '//*[@id="ctl00_MainContent_SearchBy_DropDown"]/div/ul/li[2]').click() #Click Applicant 1
+        time.sleep(1)
+        #First Letter Search
+        for first_letter in loop_a():
+            #This nested loop is repeated eight times (if nessecary)
+            clear_typing = driver.find_element(By.XPATH, '//*[@id="MainContent_LastName"]').clear()  #Clear last name box
+            clear_typing = driver.find_element(By.XPATH, '//*[@id="MainContent_FirstName"]').clear() #Clear first name box
+            clear_typing = driver.find_element(By.XPATH, '//*[@id="MainContent_MiddleName"]').clear() #Clear middle name box
+            typing = driver.find_element(By.XPATH, '//*[@id="MainContent_LastName"]').send_keys(first_letter) #Type in the letter (from the loop) - in this loop as the beginning of the last name
+            search = driver.find_element(By.ID, 'MainContent_Search').click()  #Press search
+            time.sleep(1) #MUST GIVE TIME FOR PAGE TO LOAD - what's the most efficient time here idk
+            records_amt = num_records() #How many records were returned
+            if records_amt == 51:
+                #Second Loop starts if more than 50
+                for second_letter in loop_a():
+                    clear_typing = driver.find_element(By.XPATH, '//*[@id="MainContent_LastName"]').clear()
+                    clear_typing = driver.find_element(By.XPATH, '//*[@id="MainContent_FirstName"]').clear()
+                    clear_typing = driver.find_element(By.XPATH, '//*[@id="MainContent_MiddleName"]').clear()
+                    typing = driver.find_element(By.XPATH, '//*[@id="MainContent_LastName"]').send_keys(first_letter+second_letter)
+                    search = driver.find_element(By.ID, 'MainContent_Search').click()
+                    time.sleep(1)
+                    records_amt = num_records()
+                    if records_amt == 51:
+                        #Third Loop starts if more than 50
+                        for third_letter in loop_a():
+                            clear_typing = driver.find_element(By.XPATH, '//*[@id="MainContent_LastName"]').clear()
+                            clear_typing = driver.find_element(By.XPATH, '//*[@id="MainContent_FirstName"]').clear()
+                            clear_typing = driver.find_element(By.XPATH, '//*[@id="MainContent_MiddleName"]').clear()
+                            typing = driver.find_element(By.XPATH, '//*[@id="MainContent_LastName"]').send_keys(first_letter+second_letter+third_letter)
+                            search = driver.find_element(By.ID, 'MainContent_Search').click()
+                            time.sleep(1)
+                            records_amt = num_records()
+                            if records_amt == 51:
+                                #Fourth (First Name) Loop starts if more than 50
+                                for firstname_letter in loop_a():
+                                    clear_typing = driver.find_element(By.XPATH, '//*[@id="MainContent_FirstName"]').clear()
+                                    clear_typing = driver.find_element(By.XPATH, '//*[@id="MainContent_MiddleName"]').clear()
+                                    typing = driver.find_element(By.XPATH, '//*[@id="MainContent_FirstName"]').send_keys(firstname_letter)
+                                    search = driver.find_element(By.ID, 'MainContent_Search').click()
+                                    time.sleep(1)
+                                    records_amt = num_records()
+                                    if records_amt == 51:
+                                        #Fifth (Second First Name) Loop starts if more than 50
+                                        for secondname_letter in loop_a():
+                                            clear_typing = driver.find_element(By.XPATH, '//*[@id="MainContent_FirstName"]').clear()
+                                            clear_typing = driver.find_element(By.XPATH, '//*[@id="MainContent_MiddleName"]').clear()
+                                            typing = driver.find_element(By.XPATH, '//*[@id="MainContent_FirstName"]').send_keys(firstname_letter+secondname_letter)
+                                            search = driver.find_element(By.ID, 'MainContent_Search').click()
+                                            time.sleep(1)
+                                            records_amt = num_records()
+                                            if records_amt == 51:
+                                                #Sixth (Third First Name) Loop starts if more than 50
+                                                for thirdname_letter in loop_a():
+                                                    clear_typing = driver.find_element(By.XPATH, '//*[@id="MainContent_FirstName"]').clear()
+                                                    clear_typing = driver.find_element(By.XPATH, '//*[@id="MainContent_MiddleName"]').clear()
+                                                    typing = driver.find_element(By.XPATH, '//*[@id="MainContent_FirstName"]').send_keys(firstname_letter+secondname_letter+thirdname_letter)
+                                                    search = driver.find_element(By.ID, 'MainContent_Search').click()
+                                                    time.sleep(1)
+                                                    records_amt = num_records()
+                                                    if records_amt == 51:
+                                                        #Seventh (First Middle Name) Loop starts if more than 50
+                                                        for first_m_letter in loop_a():
+                                                            clear_typing = driver.find_element(By.XPATH, '//*[@id="MainContent_MiddleName"]').clear()
+                                                            typing = driver.find_element(By.XPATH, '//*[@id="MainContent_MiddleName"]').send_keys(first_m_letter)
+                                                            search = driver.find_element(By.ID, 'MainContent_Search').click()
+                                                            time.sleep(1)
+                                                            records_amt = num_records()
+                                                            if records_amt == 51:
+                                                                #Eigth (Second MIDDLE Name) Loop starts if more than 50
+                                                                for second_m_letter in loop_a():
+                                                                    clear_typing = driver.find_element(By.XPATH, '//*[@id="MainContent_MiddleName"]').clear()
+                                                                    typing = driver.find_element(By.XPATH, '//*[@id="MainContent_MiddleName"]').send_keys(first_m_letter+second_m_letter)
+                                                                    search = driver.find_element(By.ID, 'MainContent_Search').click()
+                                                                    time.sleep(1)
+                                                                    records_amt = num_records()
+                                                                    #Check Results of loop - bc we go no further
+                                                                    if records_amt == 51:
+                                                                        over_50 = over_50+1
+                                                                        print("Over 50 on third")
+                                                                    elif records_amt == -1:
+                                                                        print("No Records")
+                                                                    #Eighth (second_m_name) Loop Pull
+                                                                    else:
+                                                                        soup = BeautifulSoup(driver.page_source, 'html.parser')
+                                                                        pull_data()
+                                                                        header_added = True
+                                                                        next_clicks = records_returned()
+                                                                        for i in range(0, next_clicks):
+                                                                            soup = click_next()
+                                                                            pull_data()
+                                                                    if second_m_letter == "Z":
+                                                                            break
+                                                            elif records_amt == -1:
+                                                                print("No Records")
+                                                            #Seventh (first_m_name) Loop Pull    
+                                                            else:
+                                                                soup = BeautifulSoup(driver.page_source, 'html.parser')
+                                                                pull_data()
+                                                                header_added = True
+                                                                next_clicks = records_returned()
+                                                                for i in range(0, next_clicks):
+                                                                    soup = click_next()
+                                                                    pull_data()
+                                                            if first_m_letter == "Z":
+                                                                    break            
+                                                    elif records_amt == -1:
+                                                        print("No Records")
+                                                    #Sixth (Third First Name) Loop Pull    
+                                                    else:
+                                                        soup = BeautifulSoup(driver.page_source, 'html.parser')
+                                                        pull_data()
+                                                        header_added = True
+                                                        next_clicks = records_returned()
+                                                        for i in range(0, next_clicks):
+                                                            soup = click_next()
+                                                            pull_data()
+                                                    if thirdname_letter == "Z":
+                                                            break                        
+                                            elif records_amt == -1:
+                                                print("No Records")
+                                            #Fifth (Second First Name) Loop Pull    
+                                            else:
+                                                soup = BeautifulSoup(driver.page_source, 'html.parser')
+                                                pull_data()
+                                                header_added = True
+                                                next_clicks = records_returned()
+                                                for i in range(0, next_clicks):
+                                                    soup = click_next()
+                                                    pull_data()
+                                            if secondname_letter == "Z":
+                                                    break            
+                                    elif records_amt == -1:
+                                        print("No Records")
+                                    #Fourth (first First Name) Loop Pull    
+                                    else:
+                                        soup = BeautifulSoup(driver.page_source, 'html.parser')
+                                        pull_data()
+                                        header_added = True
+                                        next_clicks = records_returned()
+                                        for i in range(0, next_clicks):
+                                            soup = click_next()
+                                            pull_data()
+                                    if firstname_letter == "Z":
+                                            break
+                            elif records_amt == -1:
+                                print("No Records")
+                            #Third Loop Pull
+                            else:
+                                soup = BeautifulSoup(driver.page_source, 'html.parser')
+                                pull_data()
+                                header_added = True
+                                next_clicks = records_returned()
+                                for i in range(0, next_clicks):
+                                    soup = click_next()
+                                    pull_data()
+                            if third_letter == "Z":
+                                    break
+                    elif records_amt == -1:  
+                        print("No Records")  #If we have no records returned (say for the search LN, FN: ZX, H) then don't write that sheeeet
+                    #Second Loop Pull
+                    else:
+                        soup = BeautifulSoup(driver.page_source, 'html.parser')  #Give beautiful soup the source page
+                        pull_data()  #Run the scraping function
+                        header_added = True  #After the first time stop printing the header
+                        next_clicks = records_returned()  #Click if nessecary to the remaining pages (data spread across three pages) - Loop below does it
+                        for i in range(0, next_clicks):
+                            soup = click_next()
+                            pull_data()
+                    if second_letter == "Z":  #This is the end of our loop
+                        break  #Meant to comment the first loop - but no diff
+            elif records_amt == -1:
+                print("No Records")
+            #First Loop Pull
+            else:
+                soup = BeautifulSoup(driver.page_source, 'html.parser')
+                pull_data()
+                header_added = True
+                next_clicks = records_returned()
+                for i in range(0, next_clicks):
+                    soup = click_next()
+                    pull_data()
+            if first_letter == "Z":
+                break
+                    
+
+#How long it took
+print(datetime.now() - startTime)
+#Any over 50?
+print(over_50)
+                    
+
+
+
+
+
+
